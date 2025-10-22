@@ -151,8 +151,19 @@ def extract_palette_lsb_nohdr(stego_path: str, bit_len: int) -> bytes:
     
     return bytes(out)
 
+import random
+import string
 
-secret = b"Hello my fdfksdfjsdlkfsdjfslk;dfjslkddfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjfdfjslkdfjlksdjffjlksdjf;lksdjfklsjdflksjdflksjdfjsdkjgj5rtjgohdfogdfjgodfigj"
-embed_palette_lsb_nohdr("cat.bmp", "stego.bmp", secret)
+def generate_random_string(length):
+    # Определяем набор символов
+    chars = string.ascii_letters + string.digits
+    # Генерируем случайную строку
+    return ''.join(random.choices(chars, k=length))
+
+# Генерация строки длиной 40000 символов
+random_string = generate_random_string(40000)
+
+secret = bytes(random_string, encoding='utf-8')
+embed_palette_lsb_nohdr("OIPBPM.bmp", "stego.bmp", secret)
 restored = extract_palette_lsb_nohdr("stego.bmp", len(secret)*8)
 print(restored, restored == secret)

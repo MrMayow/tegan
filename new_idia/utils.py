@@ -1,4 +1,5 @@
 from PIL import Image
+import math
 
 def display_palette(palette, save_path):
     result_palette = []
@@ -27,7 +28,7 @@ def _get_palette_rgb(img: Image.Image):
 
 def _weight(rgb) -> int:
     r,g,b = rgb
-    return (r<<16) + (g<<8) + b  # W = 65536*R + 256*G + B
+    return math.sqrt(r**2 + b**2 + g**2)  # W = 65536*R + 256*G + B
 
 def _build_sorted_tables(palette):
     # Tsort: список кортежей (orig_index, rgb) отсортированный по W
@@ -38,7 +39,8 @@ def _build_sorted_tables(palette):
     pos_to_orig = {i:orig for i,(orig,_) in enumerate(indexed)}
     return indexed, orig_to_pos, pos_to_orig   
 
-def _nearest_pos_with_lsb(target_bit, pos_to_orig, pos, n):
+def _nearest_pos_with_lsb(target_bit, pos_to_orig, pos, n, palette):
+    indexed = list(enumerate(palette))
     orig = pos_to_orig[pos]
     if (orig & 1) == target_bit:
         return orig
@@ -49,12 +51,17 @@ def _nearest_pos_with_lsb(target_bit, pos_to_orig, pos, n):
         orig_dn = pos_to_orig[dn]
         orig_up = pos_to_orig[up]
         cand = []
+        pos_weight = _weight(indexed[orig][1])
+        dn_weight = _weight(indexed[orig_dn][1])
+        up_weight = _weight(indexed[orig_up][1])
         if orig_dn >= 0 and ((orig_dn & 1) == target_bit):
-            cand.append(orig_dn)
+            cand.append((orig_dn, dn_weight))
         if orig_up < n and ((orig_up & 1) == target_bit):
-            cand.append(orig_up)
+            cand.append((orig_up, up_weight))
         if cand:
-            return min(cand, key=lambda c: abs(c - pos))
+            minim = min(cand, key=lambda c: abs(c[1] - pos_weight))
+            return minim[0]
         if orig_dn < 0 and orig_up >= n:
             return orig
+            
         r += 1

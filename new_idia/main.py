@@ -26,13 +26,13 @@ def embed_palette(source_path, dst_path, bits):
 
     n = 256
     k = 0
-    for x in range(w):
-        for y in range(h):
+    for y in range(h):
+        for x in range(w):
             if k >= len(bits): break
             orig_idx = pixels[x, y]
             pos = orig_to_pos[orig_idx]
             target = bits[k]
-            new_pos = _nearest_pos_with_lsb(target, pos_to_orig ,pos, n)
+            new_pos = _nearest_pos_with_lsb(target, pos_to_orig ,pos, n, palette)
             pixels[x, y] = new_pos
             k += 1
             
@@ -48,16 +48,18 @@ def extract_palette(img_path, bit_len):
     pixels = image.load()
     bits: List[int] = []
     need = bit_len
-    for x in range(w):
-        for y in range(h):
+    for y in range(h):
+        for x in range(w):
             if len(bits) >= need: break
             pixel_pos = pixels[x, y]
             bits.append(pixel_pos & 1)
         if len(bits) >= need: break
     return bits
 
-embed_palette("cat.bmp", "result.bmp", "A")
-result_b = extract_palette("result.bmp", 18024)
+secret = "Hello, Bro"
+print(secret)
+embed_palette("OIPBPM.bmp", "result.bmp", secret)
+result_b = extract_palette("result.bmp", len(secret)*8)
 print(result_b)
 
 
