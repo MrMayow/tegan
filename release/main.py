@@ -2,168 +2,124 @@ from PIL import Image
 from typing import List, Tuple
 import math
 
-def _get_palette_rgb(img):
+def get_palette_rgb(img):
     pal = img.getpalette()[:256*3]
     return [(pal[i], pal[i+1], pal[i+2]) for i in range(0, len(pal), 3)]
 
-def _rgb_to_lab(rgb):
-    """Конвертация RGB в LAB для перцептивного сравнения цветов"""
+def rgb_to_lab(rgb):
     r, g, b = [x / 255.0 for x in rgb]
-    
-    # Gamma correction
     r = ((r + 0.055) / 1.055) ** 2.4 if r > 0.04045 else r / 12.92
     g = ((g + 0.055) / 1.055) ** 2.4 if g > 0.04045 else g / 12.92
     b = ((b + 0.055) / 1.055) ** 2.4 if b > 0.04045 else b / 12.92
-    
-    # RGB to XYZ
     x = r * 0.4124 + g * 0.3576 + b * 0.1805
     y = r * 0.2126 + g * 0.7152 + b * 0.0722
     z = r * 0.0193 + g * 0.1192 + b * 0.9505
-    
-    # XYZ to LAB
     x /= 0.95047
     z /= 1.08883
-    
     def f(t):
         return t ** (1/3) if t > 0.008856 else (7.787 * t) + (16 / 116)
-    
     fx, fy, fz = f(x), f(y), f(z)
-    
     L = (116 * fy) - 16
     a = 500 * (fx - fy)
     b = 200 * (fy - fz)
-    
     return (L, a, b)
 
-def _color_distance(rgb1, rgb2):
-    """Вычисляет перцептивное расстояние между цветами в LAB пространстве"""
-    lab1 = _rgb_to_lab(rgb1)
-    lab2 = _rgb_to_lab(rgb2)
+def color_distance(rgb1, rgb2):
+    lab1 = rgb_to_lab(rgb1)
+    lab2 = rgb_to_lab(rgb2)
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(lab1, lab2)))
 
-def _weight(rgb):
-    """Перцептивная яркость для сортировки"""
+def weight(rgb):
     r, g, b = rgb
-    # Weighted luminance
     return 0.299 * r + 0.587 * g + 0.114 * b
 
-def _build_sorted_tables(palette):
+def build_sorted_tables(palette):
     indexed = list(enumerate(palette))
-    # Сортировка по перцептивной яркости, а не по побитовому весу
-    indexed.sort(key=lambda x: _weight(x[1]))
-    
+    indexed.sort(key=lambda x: weight(x[1]))
     orig_to_pos = {orig: i for i, (orig, _) in enumerate(indexed)}
     pos_to_orig = {i: orig for i, (orig, _) in enumerate(indexed)}
-    
     return indexed, orig_to_pos, pos_to_orig
 
-def _find_nearest_color_with_lsb(target_bit, orig_idx, palette, orig_to_pos):
-    """
-    Находит ближайший цвет с нужным LSB, используя перцептивное расстояние
-    """
+def find_nearest_color_with_lsb(target_bit, orig_idx, palette, orig_to_pos):
     orig_color = palette[orig_idx]
     n = len(palette)
-    
-    # Создаём список кандидатов с нужным LSB
     candidates = []
     for idx in range(n):
         pos = orig_to_pos[idx]
         if (pos & 1) == target_bit:
-            dist = _color_distance(orig_color, palette[idx])
+            dist = color_distance(orig_color, palette[idx])
             candidates.append((dist, idx))
     
     if not candidates:
         return orig_idx
-    
-    # Возвращаем цвет с минимальным перцептивным расстоянием
+
     candidates.sort(key=lambda x: x[0])
     return candidates[0][1]
 
 def embed_palette_lsb_nohdr(src_path: str, dst_path: str, payload: bytes):
     img = Image.open(src_path).convert("P")
-    palette = _get_palette_rgb(img)
+    palette = get_palette_rgb(img)
     
-    _, orig_to_pos, pos_to_orig = _build_sorted_tables(palette)
-    
+    aaa, orig_to_pos, pos_to_orig = build_sorted_tables(palette)
+    for i in aaa:
+        print(i[0], ":", i[1])
     w, h = img.size
     pixels = img.load()
     
-    # Полезная нагрузка -> биты MSB→LSB
     bits: List[int] = []
     for b in payload:
         for i in range(7, -1, -1):
             bits.append((b >> i) & 1)
-    
     capacity = w * h
     if len(bits) > capacity:
         raise ValueError(f"Недостаточная емкость: нужно {len(bits)} бит, есть {capacity}")
-    
     k = 0
     for y in range(h):
         for x in range(w):
+            
             if k >= len(bits):
                 break
-            
             orig_idx = pixels[x, y]
             target = bits[k]
-            
-            # Используем перцептивный поиск ближайшего цвета
-            new_idx = _find_nearest_color_with_lsb(target, orig_idx, palette, orig_to_pos)
+            new_idx = find_nearest_color_with_lsb(target, orig_idx, palette, orig_to_pos)
             pixels[x, y] = new_idx
-            
             k += 1
         if k >= len(bits):
             break
-    
     img.save(dst_path)
 
 def extract_palette_lsb_nohdr(stego_path: str, bit_len: int) -> bytes:
     img = Image.open(stego_path).convert("P")
-    palette = _get_palette_rgb(img)
-    
-    _, orig_to_pos, _ = _build_sorted_tables(palette)
-    
+    palette = get_palette_rgb(img)
+    _, orig_to_pos, _ = build_sorted_tables(palette)
+
     w, h = img.size
     pixels = img.load()
-    
     bits: List[int] = []
     need = bit_len
-    
     for y in range(h):
         for x in range(w):
             if len(bits) >= need:
                 break
-            
             pos = orig_to_pos[pixels[x, y]]
             bits.append(pos & 1)
         if len(bits) >= need:
             break
-    
     out = bytearray()
     for i in range(0, len(bits), 8):
         chunk = bits[i:i+8]
         if len(chunk) < 8:
             break
         v = 0
-        for b in chunk:  # MSB→LSB
+        for b in chunk:
             v = (v << 1) | b
         out.append(v)
     
     return bytes(out)
 
-import random
-import string
-
-def generate_random_string(length):
-    # Определяем набор символов
-    chars = string.ascii_letters + string.digits
-    # Генерируем случайную строку
-    return ''.join(random.choices(chars, k=length))
-
-# Генерация строки длиной 40000 символов
-random_string = generate_random_string(40000)
-
-secret = bytes(random_string, encoding='utf-8')
-embed_palette_lsb_nohdr("OIPBPM.bmp", "stego.bmp", secret)
-restored = extract_palette_lsb_nohdr("stego.bmp", len(secret)*8)
-print(restored, restored == secret)
+secret_string = "Зовут его Николаем Петровичем Кирсановым. У него в пятнадцати верстах от постоялого дворика хорошее имение в двести душ, или, как он выражается с тех пор, как размежевался с крестьянами и завел «ферму», — в две тысячи десятин земли. Отец его, боевой генерал 1812 года, полуграмотный, грубый, но не злой русский человек, всю жизнь свою тянул лямку, командовал сперва бригадой, потом дивизией и постоянно жил в провинции, где в силу своего чина играл довольно значительную роль. Николай Петрович родился на юге России, подобно старшему своему брату Павлу, о котором речь впереди, и воспитывался до четырнадцатилетнего возраста дома, окруженный дешевыми гувернерами, развязными, но подобострастными адъютантами и прочими полковыми и штабными личностями. "
+secret_bytes = bytes(secret_string, encoding='utf-8')
+embed_palette_lsb_nohdr("source.bmp", "stego_full.bmp", secret_bytes)
+restored_bytes = extract_palette_lsb_nohdr("stego_full.bmp", len(secret_bytes)*8)
+restored_string = restored_bytes.decode('utf-8')
+print(restored_string, restored_string == secret_string)
